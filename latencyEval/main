@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Oct 13 07:00:02 2020
+@author: Adam
+
+Please feel free to contact me for ANY questions whatsoever:
+    adam@magentiq.com
+
+"""
+
+#%%
+# set up working env
+ROOT_DIR = r'.'
+
+# global modules (you can import any outer package you need here)
+import os
+os.chdir(ROOT_DIR)
+
+# OUR local modules
+from apds.stats import utils
+
+# YOUR costume modules (we highly prefer that all code should be in this file)
+from apds.exp import costume
+from apds.stats import lib
+import numpy as np
+sprs = utils.read_prediction_gt_pairs('./data/pred.yml',
+                                      './data/gt.yml',
+                                      sort=True)
+
+
+#%%
+"""
+# =============================================================================
+#        The code should be at Production Level, including relevant tests 
+# =============================================================================
+
+The Goal:
+    Your mission is to write a class that calculates object detection latency,
+    it should be able to support:
+        1. Detection latency per object 
+        2. Mean detection latency per video
+        3. Max detection latency per video
+
+Inputs:
+    sprs: pairs iterable, returns tuples of the form (pred, gt).
+    minConfidenceAllowed: float, predictions with smaller 
+                          confidence than this value are ignored.
+    minIOUAllowed: float, preds and gt with smaller 
+                   IOU than this value are not called "detected".
+
+Extra Info:
+    
+    Correct Detection: 
+        an object is detected correctly if two conditions meet:
+            1. The object's confidence is greater than minConfidenceAllowed
+            2. The IOU of the prediction and the gt is greater than 0.01
+        any detection that does not meet these conditions should not be 
+        counted, and should be ignored.
+        
+    Latency: 
+        as we describe it, is the amount of frames that passed since,
+        an object has been seen for the first time in the ground truth,
+        untill it was discovered for the first time in the prediction.
+        
+    sprs: 
+        is an iterator that outputs pairs of predictions (pred) and 
+        ground_truths (gt). 
+        
+        Each returned argument of the pair is of class "Detection" (apds.datatypes)
+        and holds the relevant frames information, that is:
+            boxes:  
+                a list of bounding boxes coordinates [xmin, ymin, xmax, ymax] 
+                and their matching prediction confidence [0 <= conf <= 1]
+            frame_id: 
+                (hospital, vid_id, frame_number)
+                
+        usage example:
+            in:
+                for det_pred, det_gt in sprs:
+                    print(det_pred)
+                    print(det_gt)
+                    break
+            out:
+                Detection(boxes=(<conf: 0.6299969553947449, 
+                                 coord: [105.56462860107422, 
+                                         637.5382690429688, 
+                                         512.47900390625, 
+                                         968.6673583984375]>,), 
+                          frame_id=('AsuMayoTest_clean', 'testVD13', 1), 
+                          pointers=(), contours=None)
+                
+                Detection(boxes=(<conf: 1.0, 
+                                 coord: [65.0, 
+                                         679.0, 
+                                         471.0, 
+                                         930.0]>,), 
+                          frame_id=('AsuMayoTest_clean', 'testVD13', 1), 
+                          pointers=(), contours=None)
+"""
+#%% Your defenitions and statements code should be here:
+class latencyEvaluator:
+    
+    def __init__(self, sprs, minConfidenceAllowed, minIOUAllowed = 0.01):
+        self.sprs = sprs
+        self.minConfidenceAllowed = minConfidenceAllowed
+        self.minIOUAllowed = minIOUAllowed
+        # drop-out detections without gt
+        self.sprs = costume.drop_out_detections_without_gt(self.sprs)
+        # drop-out detections with irrelevat predictions
+        #self.sprs = list(filter(lambda x: costume.filter_detections(x, self.minConfidenceAllowed, self.minIOUAllowed), self.sprs))
+        self.objects_per_video = costume.find_objects_in_videos(utils.group_pred_gt_pairs_by_videos(self.sprs), minIOUAllowed = 0.01)
+    
+    
+    def detect_latency_per_object(self):
+        lat_obj = dict()
+        for video_key in self.objects_per_video:
+            lat_obj[video_key] = []
+            for i, obj in enumerate(self.objects_per_video[video_key]):
+                #print("Object " + str(i+1) + " in video: " + video_key[0] + "/" + video_key[1])
+                detections_of_obj = list(filter(lambda x: costume.filter_detections(x, self.minConfidenceAllowed, self.minIOUAllowed), obj))
+                frame_ids_of_detections = [x[0].frame_id[2] for x in detections_of_obj]
+                
+                
+                if len(detections_of_obj) > 0:
+                    lat_obj[video_key].append(min(frame_ids_of_detections) - obj[0][1].frame_id[2])
+                    #print("Earliest prediction of object: " + str( min(frame_ids_of_detections)))
+                    #print("Object detected in grand truth: "  + str(obj[0][1].frame_id[2]))
+                    #print("Detection latency of object: " + str(detections_of_obj[0][0].frame_id[2] - obj[0][1].frame_id[2]) + " frames")
+        return lat_obj
+    def mean_detect_latency_per_video(self):
+        lat_obj = self.detect_latency_per_object()
+        means = dict()
+        for video_key in self.objects_per_video:
+            if len(lat_obj[video_key]) >0:
+                means[video_key] = np.mean(np.array(lat_obj[video_key]))
+        return means
+            
+        
+    
+    def max_detect_latency_per_video(self):
+        lat_obj = self.detect_latency_per_object()
+        mxes = dict()
+        for video_key in self.objects_per_video:
+            if len(lat_obj[video_key]) >0:
+                mxes[video_key] = np.max(np.array(lat_obj[video_key]))
+        return mxes
+    pass
+
+#%% Your usage example code should be here:
+if __name__ == '__main__':
+    pass
+
+
+
+# def filter_relevant_predictions_per_object(objects,minConfidenceAllowed, minIOUAllowed = 0.01):
+#     for video_key in objects:
+#         for i, obj in enumerate(objects[video_key]):
+#             print("Object " + str(i+1) + " in video: " + video_key[0] + "/" + video_key[1])
+#             detections_of_obj = list(filter(lambda x: filter_detections(x, minConfidenceAllowed, minIOUAllowed), obj))
+#             frame_ids_of_detections = [x[0].frame_id[2] for x in detections_of_obj]
+            
+            
+#             if len(detections_of_obj) > 0:
+#                 print("Earliest prediction of object: " + str( min(frame_ids_of_detections)))
+#                 print("Object detected in grand truth: "  + str(obj[0][1].frame_id[2]))
+#                 print("Detection latency of object: " + str(detections_of_obj[0][0].frame_id[2] - obj[0][1].frame_id[2]) + " frames")
+
+
+
+
+
+
+
+
